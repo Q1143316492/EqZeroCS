@@ -1,0 +1,67 @@
+# Build and Object files
+temp_code/
+
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+*.cache
+*.cubin
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sln.docstates
+*.userprefs
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# Resharper
+_ReSharper*/
+*.resharper
+*.resharper.user
+
+# NuGet
+packages/
+*.nupkg
+.nuget/
+
+# Test Results
+TestResults/
+*.trx
+
+# Local environment
+local.json
+appsettings.local.json
+
+# Temporary files
+tmp/
+*.tmp
+*.log
+*.out
+*.err
+
+# Reference/Target folders
+target/
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE backup files
+*.bak
+*.backup
+
+# dotnet
+.dotnet/

@@ -1,0 +1,51 @@
+{
+  "categories": [
+    "Files",
+    "Scripts",
+    "Commands"
+  ],
+  "items": [
+    {
+      "name": "server",
+      "type": "command",
+      "command": "./scripts/server.bat",
+      "description": "server",
+      "category": "Commands",
+      "id": "n4yf78z0a"
+    },
+    {
+      "name": "client",
+      "type": "command",
+      "command": "./scripts/client.bat",
+      "description": "client",
+      "category": "Commands",
+      "id": "n4yf78z0b"
+    },
+    {
+      "name": "kill",
+      "type": "command",
+      "command": "./scripts/kill.bat",
+      "description": "kill all servers and clients",
+      "category": "Commands",
+      "id": "n4yf78z0c"
+    },
+    {
+      "name": "focus-gcc",
+      "type": "command",
+      "command": "./scripts/focus-gcc.bat",
+      "description": "minimize non-gcc terminals and tile gcc windows",
+      "category": "Commands",
+      "id": "n4yf78z0d"
+    },
+    {
+      "name": "focus-gate",
+      "type": "command",
+      "command": "./scripts/focus-gate.bat",
+      "description": "minimize non-gate terminals and tile gate windows",
+      "category": "Commands",
+      "id": "n4yf78z0e"
+    }
+  ],
+  "workspaceNotices": [],
+  "currentNoticeName": ""
+}
