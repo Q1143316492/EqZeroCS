@@ -1,7 +1,25 @@
 # EqZeroCS
 
-C# 移植版的 wlengine（参考 `target/wlengine-asyncio` 的 Python 版本）。
-初版只保留单进程 TCP 服务器 + 模板控制台客户端，便于后续在 Unity 中复用 `Shared`。
+C# 移植版的 wlengine（参考 `temp_code/wlengine-asyncio` 的 Python 版本），对齐多进程 TCP 服务架构与链式 RPC 协议。
+
+## 进程拓扑
+
+```
+Client ──→ login                (port 4000)
+Client ──→ gate1 / gate2        (port 5000 / 5001)
+               │
+               ├──→ gcc1        (port 5300)
+               ├──→ gas1        (port 5100)
+               └──→ ats1        (port 5200)
+```
+
+- **login**：登录入口，验证客户端身份
+- **gate**：前门代理，维持客户端长连接，按 RRpcGet 前缀将 RPC 帧路由到对应后端
+- **gcc**：游戏逻辑（GccPlayer / GccPlayerMgr）
+- **gas**：通用异步服务
+- **ats**：异步任务服务
+
+进程配置见 `config/server_config.json`。
 
 ## 布局
 
@@ -9,23 +27,39 @@ C# 移植版的 wlengine（参考 `target/wlengine-asyncio` 的 Python 版本）
 EqZeroCS/
 ├── EqZeroCS.sln
 ├── config/
-│   ├── server_config.json    # 与 Python 版同名同结构
-│   └── client_config.json
+│   ├── server_config.json    # 所有进程的 ip/port
+│   └── client_config.json    # 客户端连接的 login 地址
 └── src/
-    ├── Shared/               # netstandard2.1，准备软链给 Unity
-    │   ├── Net/Message.cs    # [4B BE len][4B BE flag][msgpack body]
-    │   ├── Net/MessageFlag.cs
+    ├── Shared/               # netstandard2.1，可软链给 Unity
+    │   ├── Net/
+    │   │   ├── Message.cs        # [4B BE len][4B BE flag][msgpack body]
+    │   │   ├── MessageFlag.cs    # Base=0, RRpcCall=1
+    │   │   ├── TcpAcceptor.cs    # 监听端，接受入站连接
+    │   │   ├── TcpConnection.cs  # 单条 TCP 连接读写
+    │   │   └── TcpDialer.cs      # 出站连接 + 重试
+    │   ├── Rpc/
+    │   │   ├── RpcProtocol.cs    # wire key 常量，与 Python const.py 对齐
+    │   │   ├── RpcMessage.cs     # 构造 / 解析 RPC 帧
+    │   │   ├── RpcDispatcher.cs  # 按 call-chain 反射分发
+    │   │   ├── RpcProxy.cs       # 客户端发起 RPC 调用
+    │   │   ├── RpcCallContext.cs # 当前请求上下文（连接 + rpcDefine）
+    │   │   └── IRpcRoute.cs      # RRpcGet* 路由接口
     │   ├── Logging/Log.cs
     │   └── Config/ConfigLoader.cs
-    ├── Server/               # net8.0 控制台进程，单端口 TCP
-    │   ├── Net/TcpServer.cs
-    │   ├── Net/ServerConnection.cs
-    │   ├── App/ServerApp.cs
-    │   └── Program.cs        # --name login (默认)
+    ├── Server/               # net8.0，单可执行多进程类型
+    │   ├── Program.cs            # --name <login|gate1|gas1|gcc1|ats1>
+    │   ├── Framework/
+    │   │   ├── ServerAppBase.cs  # 持有 TcpAcceptor，子类实现 OnMessage
+    │   │   └── ServerRegistry.cs # 读取 server_config.json，解析进程类型前缀
+    │   ├── Login/LoginApp.cs
+    │   ├── Gate/GateApp.cs
+    │   ├── Gas/GasApp.cs
+    │   ├── Gcc/GccApp.cs + GccPlayer.cs + GccPlayerMgr.cs
+    │   └── Ats/AtsApp.cs
     └── Client/               # net8.0 控制台模板客户端
-        ├── Net/ClientConnection.cs
-        ├── App/ClientApp.cs
-        └── Program.cs
+        ├── Program.cs
+        ├── ClientApp.cs
+        └── ClientObj.cs
 ```
 
 ## 协议
@@ -39,44 +73,44 @@ EqZeroCS/
 └──────────────┴──────────────┴───────────────────────┘
 ```
 
-- `length`：body 字节数
-- `flag`：消息类型，`0 = Base`，`1 = RRpcCall`
+- `length`：body 字节数（不含头部）
+- `flag`：`0 = Base`，`1 = RRpcCall`
 - `body`：msgpack 序列化的 `Dictionary<string, object?>`
+
+RPC 帧 body 固定两个 key（与 `framwork/const.py ERpcProtocol` 对齐）：
+
+| key | 含义 |
+|-----|------|
+| `"1"` | rpcDefine：4 元组 `(fromProcess, fromGlobalId, toProcess, toGlobalId)` |
+| `"2"` | callChain：`[[funcName, args[]], ...]` |
 
 ## 运行
 
-```powershell
-# 编译
-dotnet build EqZeroCS.sln
+```bat
+REM 编译 + 启动全部服务进程（6 个窗口）
+scripts\server.bat
 
-# 启动 login 服务器（默认 --name login）
-dotnet run --project src/Server
-
-# 另开终端，启动模板客户端
-dotnet run --project src/Client
+REM 另开终端，启动模板客户端
+scripts\client.bat
 ```
 
-客户端会连接 `config/client_config.json` 中的 login 地址，发送一条
-`{op:"login", user:"cwl", pwd:"123"}` 消息，服务器收到后会回显并打上
-`server` / `echo` 字段，双方控制台都能看到日志。
+`server.bat` 启动顺序：`gcc1 → ats1 → gas1`（等 2 s）`→ gate1 / gate2`（等 1 s）`→ login`。  
+各进程在出站连接失败时会自动重试，因此顺序不是强依赖。
+
+也可以单独启动某个进程：
+
+```bat
+dotnet run --project src/Server -- --name gate1
+```
 
 ## 给 Unity 用
 
-`src/Shared` 目标框架为 `netstandard2.1`，不依赖 `System.Net.Sockets` 之外
-的服务端 API，可以直接软链到 Unity 项目的 `Assets/Plugins/EqZero/Shared`：
+`src/Shared` 目标框架为 `netstandard2.1`，可直接软链到 Unity 项目：
 
 ```powershell
-# 在 Unity 项目下
+# 在 Unity 项目根目录下执行
 New-Item -ItemType SymbolicLink -Path Assets\Plugins\EqZero\Shared `
   -Target D:\Workspace\AI\EqZeroCS\src\Shared
 ```
 
-之后 Unity 端只需自带的 `MessagePack-CSharp` 包即可使用同一套 `Message` /
-`MessageFlag`，复用客户端的连接代码可放在另一个独立的 Unity 友好 csproj 中。
-
-## 后续路线（对齐 Python 版）
-
-- [ ] 链式 RPC 调用封装（`rpc_wrapper.py`）
-- [ ] 多进程服务（gam / gate / gas / ats / gcc）+ 启动脚本生成
-- [ ] Tick 系统（单次 / 循环）
-- [ ] 配置驱动的服务注册
+Unity 端引入 `MessagePack-CSharp` 包后即可复用 `Message` / `RpcProxy` 等。
